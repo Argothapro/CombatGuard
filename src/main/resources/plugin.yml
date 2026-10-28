@@ -1,0 +1,21 @@
+name: CombatGuard
+version: '${version}'
+main: com.replex.combatguard.CombatGuard
+api-version: '1.21'
+description: Anti-triche des clics et de la visée pour les serveurs de combat (The Pit, HikaBrain), en complément de Grim
+
+commands:
+  combatguard:
+    description: Alertes et suivi de l'anti-triche des clics et de la visée
+    usage: /combatguard <alerts|info|exempt|reload>
+    aliases: [cg]
+
+permissions:
+  combatguard.alerts:
+    description: Recevoir les alertes (/cg alerts pour les couper ou les remettre)
+    default: op
+  combatguard.admin:
+    description: /cg info, exempt et reload
+    default: op
+    children:
+      combatguard.alerts: true

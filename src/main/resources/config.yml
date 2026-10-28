@@ -1,0 +1,71 @@
+# CombatGuard : contrôle des clics et de la visée, ce que Grim ne fait pas.
+# Mode observation : le plugin ne fait qu'alerter le staff et tout noter dans plugins/CombatGuard/alerts.log.
+# Il n'annule rien, n'expulse personne et ne bannit jamais. Chaque contrôle peut se couper (enabled: false).
+
+# Clics par seconde trop élevés.
+# Seuls les clics dans le vide ou sur une entité comptent : casser ou poser des blocs (pont du HikaBrain) n'en fait pas partie.
+cps:
+  enabled: true
+  # Alerte au-delà de ce nombre de clics par seconde...
+  max: 20
+  # ... pendant autant de secondes d'affilée.
+  seconds: 3
+  points: 1
+
+# Clics trop réguliers pour un humain (autoclicker) : tous les écarts entre les clics identiques, au tick près.
+regularity:
+  enabled: true
+  # Nombre d'écarts mesurés d'affilée (un arrêt de plus de 5 ticks remet la mesure à zéro).
+  samples: 30
+  # Ne contrôle que les séries rapides (en clics par seconde).
+  min-cps: 8
+  points: 2
+
+# Coup porté à une cible hors du champ de vision.
+aim:
+  enabled: true
+  # Angle maximal entre le regard et le point le plus proche de la cible, en degrés.
+  max-angle: 50
+  # En dessous de cette distance (en blocs), pas de contrôle : de très près, l'angle varie trop vite.
+  min-distance: 1.5
+  points: 2
+
+# Deux cibles différentes frappées presque en même temps, dans des directions opposées (killaura).
+multi:
+  enabled: true
+  # Écart maximal entre les deux coups, en ticks (20 ticks = 1 s).
+  max-ticks: 2
+  # Angle minimal entre les deux cibles, vues depuis l'attaquant, en degrés.
+  min-angle: 90
+  points: 3
+
+points:
+  # Les points baissent de tant par minute sans alerte.
+  decay-per-minute: 1
+  # Alerte au staff à partir de ce total (0 = chaque alerte, utile pour régler les seuils).
+  alert-from: 0
+
+# Pauses pour éviter les fausses alertes.
+pause:
+  # Aucun contrôle si le serveur rame.
+  min-tps: 18
+  # Pas de contrôle de visée au-delà de ce ping (ms).
+  max-ping: 300
+  # Pas de contrôle de visée pendant ce temps (s) après une connexion, une téléportation, une réapparition.
+  grace-seconds: 3
+
+# Messages (MiniMessage). <player>, <check>, <detail>, <points>.
+messages:
+  alert: "<red>[Anti-triche]</red> <yellow><player></yellow> <white>: <check> (<detail>), <points> points</white> <gray>- observation</gray>"
+  checks:
+    cps: "clics"
+    regularity: "clics réguliers"
+    aim: "visée"
+    multi: "multi-cibles"
+  alerts-on: "<green>Alertes anti-triche activées.</green>"
+  alerts-off: "<gray>Alertes anti-triche coupées.</gray>"
+  exempt-on: "<yellow><player> est exempté des contrôles jusqu'au redémarrage.</yellow>"
+  exempt-off: "<yellow><player> n'est plus exempté.</yellow>"
+  reloaded: "<green>Configuration rechargée.</green>"
+  unknown-player: "<red>Joueur introuvable : <player></red>"
+  no-permission: "<red>Tu n'as pas la permission.</red>"
