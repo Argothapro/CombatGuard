@@ -7,15 +7,18 @@ description: Anti-triche des clics et de la visée pour les serveurs de combat (
 commands:
   combatguard:
     description: Alertes et suivi de l'anti-triche des clics et de la visée
-    usage: /combatguard <alerts|info|exempt|reload>
+    usage: /combatguard <alerts|info|exempt|status|reload>
     aliases: [cg]
 
 permissions:
   combatguard.alerts:
     description: Recevoir les alertes (/cg alerts pour les couper ou les remettre)
     default: op
+  combatguard.bypass:
+    description: Jamais contrôlé (comptes de test)
+    default: false
   combatguard.admin:
-    description: /cg info, exempt et reload
+    description: /cg info, exempt, status et reload
     default: op
     children:
       combatguard.alerts: true

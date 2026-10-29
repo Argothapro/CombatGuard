@@ -1,5 +1,7 @@
 package com.replex.combatguard;
 
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -18,23 +20,29 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 /**
  * Anti-triche des clics et de la visée pour les serveurs de combat, en complément de Grim (qui ne contrôle ni l'un ni l'autre).
- * Mode observation : alertes et journal seulement, jamais de sanction automatique.
+ * Mode observation par défaut : alertes et journal seulement. En mode actif, seules les réactions configurées sont lancées,
+ * jamais de ban, et un garde-fou les suspend si elles s'emballent.
  */
 public final class CombatGuard extends JavaPlugin implements TabExecutor {
    private Settings settings;
-   private Alerts alerts;
-   private Checks checks;
+   private List<Check> checks = List.of();
+   private CombatListener listener;
+   private Violations violations;
+   private AlertLog log;
    /** Joueurs exemptés pour un test (/cg exempt), jusqu'au redémarrage. */
    private final Set<UUID> exempt = new HashSet<>();
 
    @Override
    public void onEnable() {
       this.saveDefaultConfig();
-      this.settings = new Settings(this.getConfig());
-      this.alerts = new Alerts(this);
-      this.checks = new Checks(this);
-      this.getServer().getPluginManager().registerEvents(this.checks, this);
-      this.getServer().getScheduler().runTaskTimer(this, this.checks::everySecond, 20L, 20L);
+      this.log = new AlertLog(this.getDataFolder().toPath().resolve("alerts.log"), this.getLogger());
+      this.violations = new Violations(this, this.log);
+      this.listener = new CombatListener(this);
+      this.loadSettings();
+      this.getServer().getPluginManager().registerEvents(this.listener, this);
+      this.getServer().getScheduler().runTaskTimer(this, this.listener::everyTick, 1L, 1L);
+      this.getServer().getScheduler().runTaskTimer(this, this.listener::everySecond, 20L, 20L);
+      this.getServer().getScheduler().runTaskTimer(this, this.violations::prune, 1200L, 1200L);
       PluginCommand command = this.getCommand("combatguard");
       if (command != null) {
          command.setExecutor(this);
@@ -42,16 +50,68 @@ public final class CombatGuard extends JavaPlugin implements TabExecutor {
       }
    }
 
+   @Override
+   public void onDisable() {
+      if (this.log != null) {
+         this.log.close();
+      }
+   }
+
+   /** Tous les contrôles. Pour en ajouter un : voir {@link Check}. */
+   private static List<Check> createChecks() {
+      return List.of(new ClickSpeedCheck(), new RegularityCheck(), new AimCheck(), new MultiTargetCheck());
+   }
+
+   private void loadSettings() {
+      this.settings = new Settings(this.getConfig(), this.getLogger());
+      this.log.setFile(this.alertsFile());
+      List<Check> loaded = createChecks();
+      for (Check check : loaded) {
+         check.load(this, this.getConfig().getConfigurationSection(check.key()));
+      }
+      this.checks = loaded;
+      if (this.settings.reactionsEnabled) {
+         this.getLogger().warning("Mode actif : " + this.settings.reactions.size() + " réaction(s) configurée(s).");
+      }
+   }
+
+   /** alerts-file de config.yml : vide = plugins/CombatGuard/alerts.log ; un chemin relatif part du dossier du serveur. */
+   private Path alertsFile() {
+      Path fallback = this.getDataFolder().toPath().resolve("alerts.log");
+      String configured = this.getConfig().getString("alerts-file", "");
+      if (configured == null || configured.isBlank()) {
+         return fallback;
+      }
+      try {
+         return Path.of(configured.trim());
+      } catch (InvalidPathException e) {
+         this.getLogger().warning("alerts-file invalide (" + configured + "), journal dans " + fallback);
+         return fallback;
+      }
+   }
+
    Settings settings() {
       return this.settings;
    }
 
-   Alerts alerts() {
-      return this.alerts;
+   List<Check> checks() {
+      return this.checks;
+   }
+
+   CombatListener listener() {
+      return this.listener;
+   }
+
+   Violations violations() {
+      return this.violations;
    }
 
    boolean isExempt(Player player) {
-      return this.exempt.contains(player.getUniqueId());
+      if (this.exempt.contains(player.getUniqueId()) || player.hasPermission("combatguard.bypass")) {
+         return true;
+      }
+      // Joueurs Bedrock (Floodgate) : leur client vise et clique autrement (écran tactile, manette).
+      return this.settings.exemptBedrock && player.getUniqueId().getMostSignificantBits() == 0L;
    }
 
    @Override
@@ -63,7 +123,7 @@ public final class CombatGuard extends JavaPlugin implements TabExecutor {
                this.send(sender, "no-permission", null);
                return true;
             }
-            this.send(sender, this.alerts.toggle(player) ? "alerts-on" : "alerts-off", null);
+            this.send(sender, this.violations.toggle(player) ? "alerts-on" : "alerts-off", null);
          }
          case "info", "exempt" -> {
             if (!sender.hasPermission("combatguard.admin")) {
@@ -88,13 +148,20 @@ public final class CombatGuard extends JavaPlugin implements TabExecutor {
                this.info(sender, target);
             }
          }
+         case "status" -> {
+            if (!sender.hasPermission("combatguard.admin")) {
+               this.send(sender, "no-permission", null);
+               return true;
+            }
+            this.status(sender);
+         }
          case "reload" -> {
             if (!sender.hasPermission("combatguard.admin")) {
                this.send(sender, "no-permission", null);
                return true;
             }
             this.reloadConfig();
-            this.settings = new Settings(this.getConfig());
+            this.loadSettings();
             this.send(sender, "reloaded", null);
          }
          default -> {
@@ -105,8 +172,8 @@ public final class CombatGuard extends JavaPlugin implements TabExecutor {
    }
 
    private void info(CommandSender sender, Player target) {
-      PlayerData data = this.checks.dataIfPresent(target.getUniqueId());
-      double points = data == null ? 0 : this.alerts.points(data);
+      PlayerData data = this.listener.dataIfPresent(target.getUniqueId());
+      double points = data == null ? 0 : this.violations.points(data);
       sender.sendMessage(MiniMessage.miniMessage().deserialize(
             "<yellow><player></yellow> : <white><points> points, ping <ping> ms<exempt></white>",
             Placeholder.unparsed("player", target.getName()),
@@ -120,6 +187,21 @@ public final class CombatGuard extends JavaPlugin implements TabExecutor {
       }
    }
 
+   private void status(CommandSender sender) {
+      StringBuilder active = new StringBuilder();
+      for (Check check : this.checks) {
+         active.append(active.isEmpty() ? "" : ", ").append(check.key()).append(check.enabled() ? "" : " (coupé)");
+      }
+      String mode = this.settings.reactionsEnabled
+            ? "actif, " + this.settings.reactions.size() + " réaction(s)" + (this.violations.reactionsPaused() ? ", suspendues" : "")
+            : "observation";
+      sender.sendMessage(MiniMessage.miniMessage().deserialize(
+            "<yellow>CombatGuard</yellow> <white>: mode <mode> ; contrôles : <checks> ; serveur <tps></white>",
+            Placeholder.unparsed("mode", mode),
+            Placeholder.unparsed("checks", active.toString()),
+            Placeholder.unparsed("tps", this.listener.serverLagging() ? "en pause (TPS bas)" : "ok")));
+   }
+
    private void send(CommandSender sender, String key, String player) {
       sender.sendMessage(MiniMessage.miniMessage().deserialize(this.settings.message(key),
             Placeholder.unparsed("player", player == null ? "" : player)));
@@ -129,7 +211,7 @@ public final class CombatGuard extends JavaPlugin implements TabExecutor {
    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
       List<String> options = new ArrayList<>();
       if (args.length == 1) {
-         for (String sub : new String[] {"alerts", "info", "exempt", "reload"}) {
+         for (String sub : new String[] {"alerts", "info", "exempt", "status", "reload"}) {
             if (sub.startsWith(args[0].toLowerCase(Locale.ROOT))) {
                options.add(sub);
             }

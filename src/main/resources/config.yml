@@ -1,49 +1,95 @@
 # CombatGuard : contrôle des clics et de la visée, ce que Grim ne fait pas.
-# Mode observation : le plugin ne fait qu'alerter le staff et tout noter dans plugins/CombatGuard/alerts.log.
-# Il n'annule rien, n'expulse personne et ne bannit jamais. Chaque contrôle peut se couper (enabled: false).
+#
+# mode: observation  -> alertes au staff et journal (plugins/CombatGuard/alerts.log) seulement. Rien n'est annulé.
+# mode: active       -> en plus, les réactions de la section reactions (vide par défaut).
+# Le plugin ne renvoie jamais un joueur en arrière et n'annule aucun coup : un faux positif ne coûte rien au joueur.
+mode: observation
 
-# Clics par seconde trop élevés.
+# Journal des alertes. Vide = plugins/CombatGuard/alerts.log. Un chemin absolu permet de garder le journal hors du dossier
+# du serveur (instances à la demande recréées à chaque partie) et de le partager entre instances : chaque ligne commence
+# par le nom de l'instance (-Dnetwork.instance=..., sinon le nom du dossier du serveur). Les dossiers sont créés si besoin.
+alerts-file: ""
+
+# Réglages communs à chaque contrôle : enabled, points, name (nom affiché),
+# can-react (ses points comptent pour les réactions ; false par défaut, à n'activer qu'après le réglage des seuils).
+
+# Clics par seconde trop élevés, en moyenne sur plusieurs secondes.
 # Seuls les clics dans le vide ou sur une entité comptent : casser ou poser des blocs (pont du HikaBrain) n'en fait pas partie.
+# Lag : les clics retenus puis reçus d'un coup sont dilués sur une fenêtre de 10 s au lieu de seconds ;
+# après un blocage de plus de 1,5 s, la mesure attend que la rafale sorte de la fenêtre.
 cps:
   enabled: true
-  # Alerte au-delà de ce nombre de clics par seconde...
+  name: "clics"
+  # Alerte au-delà de ce nombre de clics par seconde en moyenne...
   max: 20
-  # ... pendant autant de secondes d'affilée.
+  # ... sur autant de secondes.
   seconds: 3
   points: 1
+  can-react: false
 
-# Clics trop réguliers pour un humain (autoclicker) : tous les écarts entre les clics identiques, au tick près.
+# Clics trop réguliers (autoclicker à rythme fixe) : une série d'écarts tous identiques au tick près.
+# COUPÉ PAR DÉFAUT : le serveur ne voit les clics qu'au tick (50 ms). En simulation, il ne repère que les autoclickers
+# réglés sur 10 ou 20 cps exactement, et signale parfois un humain très régulier (écart-type 5 ms à 10 cps).
+# À n'activer que pour un test.
 regularity:
-  enabled: true
-  # Nombre d'écarts mesurés d'affilée (un arrêt de plus de 5 ticks remet la mesure à zéro).
-  samples: 30
+  enabled: false
+  name: "clics réguliers"
+  # Nombre d'écarts identiques d'affilée (un arrêt de plus de 5 ticks ou un lag remet la série à zéro).
+  samples: 100
   # Ne contrôle que les séries rapides (en clics par seconde).
   min-cps: 8
   points: 2
+  can-react: false
 
 # Coup porté à une cible hors du champ de vision.
+# Compensation du lag : l'angle retenu est le plus petit sur toutes les positions de la cible que le joueur a pu voir
+# (son ping + interpolation-ms), et sur tous les regards entre celui d'avant et celui d'après le coup.
 aim:
   enabled: true
+  name: "visée"
   # Angle maximal entre le regard et le point le plus proche de la cible, en degrés.
   max-angle: 50
   # En dessous de cette distance (en blocs), pas de contrôle : de très près, l'angle varie trop vite.
   min-distance: 1.5
+  # Retard d'affichage des autres joueurs chez le client (interpolation), en ms.
+  interpolation-ms: 150
+  # Marge autour de la boîte de la cible, en blocs.
+  hitbox-margin: 0.1
   points: 2
+  can-react: false
 
-# Deux cibles différentes frappées presque en même temps, dans des directions opposées (killaura).
+# Deux cibles différentes frappées presque en même temps, dans des directions très éloignées (killaura).
+# Jamais juste après un lag : des coups donnés à 1 s d'écart arrivent alors dans le même tick.
 multi:
   enabled: true
+  name: "multi-cibles"
   # Écart maximal entre les deux coups, en ticks (20 ticks = 1 s).
-  max-ticks: 2
+  max-ticks: 1
   # Angle minimal entre les deux cibles, vues depuis l'attaquant, en degrés.
-  min-angle: 90
+  min-angle: 100
   points: 3
+  can-react: false
 
 points:
   # Les points baissent de tant par minute sans alerte.
   decay-per-minute: 1
   # Alerte au staff à partir de ce total (0 = chaque alerte, utile pour régler les seuils).
   alert-from: 0
+  # Au plus un message au staff par contrôle et par joueur pendant ce délai ; les suivants sont regroupés (+N). Le journal garde tout.
+  alert-cooldown-seconds: 5
+
+# Réactions, en mode active seulement. Exemple (à n'ajouter qu'après le réglage des seuils avec Argo) :
+#   list:
+#     - points: 15
+#       command: "kick <player> Connexion instable, reconnecte-toi"
+# Les commandes de ban sont refusées au chargement : un ban est toujours décidé par le staff.
+# Garde-fous : jamais pendant un lag (serveur ou joueur) ; une réaction au plus par joueur par délai ;
+# au-delà de max-per-minute réactions sur le serveur, toutes sont suspendues pause-minutes et le staff est prévenu.
+reactions:
+  list: []
+  per-player-cooldown-minutes: 10
+  max-per-minute: 3
+  pause-minutes: 10
 
 # Pauses pour éviter les fausses alertes.
 pause:
@@ -53,15 +99,18 @@ pause:
   max-ping: 300
   # Pas de contrôle de visée pendant ce temps (s) après une connexion, une téléportation, une réapparition.
   grace-seconds: 3
+  # Lag d'un joueur : autant de paquets de mouvement reçus dans le même tick (rafale après un blocage)...
+  burst-packets: 3
+  # ... ou plus aucun paquet pendant autant de ticks puis une reprise.
+  silence-ticks: 25
+  # Joueurs Bedrock (Floodgate) exemptés : écran tactile et manette visent et cliquent autrement.
+  exempt-bedrock: true
 
-# Messages (MiniMessage). <player>, <check>, <detail>, <points>.
+# Messages (MiniMessage). Alerte : <player>, <check>, <detail>, <points>, <mode>.
 messages:
-  alert: "<red>[Anti-triche]</red> <yellow><player></yellow> <white>: <check> (<detail>), <points> points</white> <gray>- observation</gray>"
-  checks:
-    cps: "clics"
-    regularity: "clics réguliers"
-    aim: "visée"
-    multi: "multi-cibles"
+  alert: "<red>[Anti-triche]</red> <yellow><player></yellow> <white>: <check> (<detail>), <points> points</white> <gray>- <mode></gray>"
+  reaction: "<red>[Anti-triche]</red> <white>Réaction automatique pour <yellow><player></yellow> : <gray><value></gray></white>"
+  reactions-paused: "<red>[Anti-triche]</red> <white>Trop de réactions en 1 minute : toutes suspendues <value> min. Lag général ou fausses alertes ? (dernier joueur : <player>)</white>"
   alerts-on: "<green>Alertes anti-triche activées.</green>"
   alerts-off: "<gray>Alertes anti-triche coupées.</gray>"
   exempt-on: "<yellow><player> est exempté des contrôles jusqu'au redémarrage.</yellow>"
