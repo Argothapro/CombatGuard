@@ -5,6 +5,11 @@
 # Le plugin ne renvoie jamais un joueur en arrière et n'annule aucun coup : un faux positif ne coûte rien au joueur.
 mode: observation
 
+# Journal des alertes. Vide = plugins/CombatGuard/alerts.log. Un chemin absolu permet de garder le journal hors du dossier
+# du serveur (instances à la demande recréées à chaque partie) et de le partager entre instances : chaque ligne commence
+# par le nom de l'instance (-Dnetwork.instance=..., sinon le nom du dossier du serveur). Les dossiers sont créés si besoin.
+alerts-file: ""
+
 # Réglages communs à chaque contrôle : enabled, points, name (nom affiché),
 # can-react (ses points comptent pour les réactions ; false par défaut, à n'activer qu'après le réglage des seuils).
 

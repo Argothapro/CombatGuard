@@ -48,7 +48,7 @@ Une classe qui étend `Check`, une section du même nom dans `config.yml`, une l
 - `/cg status` : mode, contrôles actifs, réactions suspendues ou non.
 - `/cg reload` : recharger `config.yml`.
 
-Toutes les alertes sont aussi écrites dans `plugins/CombatGuard/alerts.log`, avec le ping du joueur. Au plus un message par contrôle et par joueur toutes les 5 s : les suivants sont regroupés (« +N »).
+Toutes les alertes sont aussi écrites dans le journal (`alerts-file`, par défaut `plugins/CombatGuard/alerts.log`), avec le nom de l'instance et le ping du joueur. Un chemin absolu le garde hors des instances recréées à chaque partie, et plusieurs instances peuvent le partager. Au plus un message par contrôle et par joueur toutes les 5 s : les suivants sont regroupés (« +N »).
 
 ## Compiler
 

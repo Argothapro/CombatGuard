@@ -1,6 +1,5 @@
 package com.replex.combatguard;
 
-import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -12,10 +11,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-/** Journal plugins/CombatGuard/alerts.log, écrit par un seul fil en arrière-plan (jamais sur le fil du serveur). */
+/**
+ * Journal des alertes (alerts-file dans config.yml), écrit par un seul fil en arrière-plan, jamais sur le fil du serveur.
+ * Chaque ligne commence par le nom de l'instance et part en une seule écriture en ajout : plusieurs serveurs peuvent
+ * partager le même fichier sans que leurs lignes se mélangent.
+ */
 final class AlertLog {
-   private final Path file;
    private final Logger logger;
+   private final String instance;
+   private volatile Path file;
    private final ExecutorService writer = Executors.newSingleThreadExecutor(runnable -> {
       Thread thread = new Thread(runnable, "CombatGuard-log");
       thread.setDaemon(true);
@@ -25,19 +29,26 @@ final class AlertLog {
    AlertLog(Path file, Logger logger) {
       this.file = file;
       this.logger = logger;
+      this.instance = instanceName();
+   }
+
+   /** Change de fichier (rechargement de la config). */
+   void setFile(Path file) {
+      this.file = file;
    }
 
    void write(String line) {
+      Path target = this.file;
+      byte[] bytes = ("[" + this.instance + "] " + line + System.lineSeparator()).getBytes(StandardCharsets.UTF_8);
       this.writer.execute(() -> {
          try {
-            Files.createDirectories(this.file.getParent());
-            try (BufferedWriter out = Files.newBufferedWriter(this.file, StandardCharsets.UTF_8,
-                  StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
-               out.write(line);
-               out.newLine();
+            Path parent = target.toAbsolutePath().getParent();
+            if (parent != null) {
+               Files.createDirectories(parent);
             }
+            Files.write(target, bytes, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
          } catch (IOException e) {
-            this.logger.log(Level.WARNING, "Impossible d'écrire dans alerts.log", e);
+            this.logger.log(Level.WARNING, "Impossible d'écrire dans " + target, e);
          }
       });
    }
@@ -50,5 +61,15 @@ final class AlertLog {
       } catch (InterruptedException e) {
          Thread.currentThread().interrupt();
       }
+   }
+
+   /** Nom de l'instance : -Dnetwork.instance=... (passé par Network), sinon le nom du dossier du serveur. */
+   private static String instanceName() {
+      String property = System.getProperty("network.instance");
+      if (property != null && !property.isBlank()) {
+         return property.trim();
+      }
+      Path folder = Path.of("").toAbsolutePath().getFileName();
+      return folder == null ? "serveur" : folder.toString();
    }
 }

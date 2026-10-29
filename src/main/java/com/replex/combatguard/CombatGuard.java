@@ -1,5 +1,7 @@
 package com.replex.combatguard;
 
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -62,6 +64,7 @@ public final class CombatGuard extends JavaPlugin implements TabExecutor {
 
    private void loadSettings() {
       this.settings = new Settings(this.getConfig(), this.getLogger());
+      this.log.setFile(this.alertsFile());
       List<Check> loaded = createChecks();
       for (Check check : loaded) {
          check.load(this, this.getConfig().getConfigurationSection(check.key()));
@@ -69,6 +72,21 @@ public final class CombatGuard extends JavaPlugin implements TabExecutor {
       this.checks = loaded;
       if (this.settings.reactionsEnabled) {
          this.getLogger().warning("Mode actif : " + this.settings.reactions.size() + " réaction(s) configurée(s).");
+      }
+   }
+
+   /** alerts-file de config.yml : vide = plugins/CombatGuard/alerts.log ; un chemin relatif part du dossier du serveur. */
+   private Path alertsFile() {
+      Path fallback = this.getDataFolder().toPath().resolve("alerts.log");
+      String configured = this.getConfig().getString("alerts-file", "");
+      if (configured == null || configured.isBlank()) {
+         return fallback;
+      }
+      try {
+         return Path.of(configured.trim());
+      } catch (InvalidPathException e) {
+         this.getLogger().warning("alerts-file invalide (" + configured + "), journal dans " + fallback);
+         return fallback;
       }
    }
 
