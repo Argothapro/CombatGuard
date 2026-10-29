@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "com.replex"
-version = "0.1.0"
+version = "0.2.0"
 
 // Version de Paper ciblée (liste : https://repo.papermc.io/repository/maven-public/io/papermc/paper/paper-api/maven-metadata.xml).
 val paperVersion = "26.2.build.129-stable"
@@ -15,6 +15,15 @@ repositories {
 
 dependencies {
     compileOnly("io.papermc.paper:paper-api:$paperVersion")
+
+    // Tests des contrôles (lag simulé, garde-fou des réactions, visée) : ./gradlew test (lancés aussi par build).
+    testImplementation(platform("org.junit:junit-bom:5.11.4"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 java {
